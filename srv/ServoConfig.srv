@@ -1,0 +1,30 @@
+#
+# Service used to control the configuration of an individual servo
+# while in operation. Supprted configs are:
+#
+# Torque mode setting
+# LED color setting
+#
+
+char servo_id
+int16 action
+
+int16 SET_TORQUE_MODE	=		0
+int16 SET_LED_COLOR =			1
+
+int16 setting
+
+int16 CFG_LED_OFF = 			0  # 0x00
+int16 CFG_LED_RED = 			1  # 0x01
+int16 CFG_LED_GREEN = 			2  # 0x02
+int16 CFG_LED_BLUE =			4  # 0x04
+int16 CFG_TORQUE_FREE =			0  # 0x00  servo manually movable, commanded movement not possible
+int16 CFG_TORQUE_BREAK_ON =		64 # 0x40  servo stopped, commanded movement not possible
+int16 CFG_TORQUE_TORQUE_ON =	96 # 0x60  servo operation possible
+---
+int16 response
+
+int16 RESPONSE_OKAY = 				0
+int16 RESPONSE_NOT_CONNECTED =		1
+int16 RESPONSE_SERVO_ID_INVALID =	2
+int16 RESPONSE_INVALID_COMMAND =	3
