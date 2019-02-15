@@ -148,8 +148,6 @@ std::vector<u_char> Herkulex::Interface::assembleBytes(u_char b1, u_char b2, u_c
 
 // Methods encapsulating the equations to convert radians to and from raw angle values
 // This also limits the radians to raw calculation to within the safe range
-// This should also do something cleverer in the future where the model of the servo is
-// use to automatically determine the equation.
 short Herkulex::Interface::radiansToRaw(u_char servoId, float radians)
 {
 	Herkulex::Servo *servo = getServoById(servoId);
@@ -161,14 +159,67 @@ short Herkulex::Interface::radiansToRaw(u_char servoId, float radians)
 		radians = servo->angleMax;
 
 	float angleDegrees = (radians / 3.141592654) * 180;
-	angleDegrees += 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
-	short rawPosition = (angleDegrees / 0.02778) + 9903;
+	short rawPosition;
+
+	switch (servo->typeId)
+	{
+	case Herkulex::Servo::DSR_0101:
+	case Herkulex::Servo::DSR_0201:
+
+		angleDegrees += 166.7;
+		rawPosition = angleDegrees / 0.325;
+		printf("rad to raw DSR_02/01 - ");
+		break;
+
+	case Herkulex::Servo::DSR_0401:
+	case Herkulex::Servo::DSR_0402:
+
+		angleDegrees += 166.7;
+		rawPosition = angleDegrees / 0.163;
+		printf("rad to raw DSR_04?? - ");
+		break;
+
+	case Herkulex::Servo::DSR_0601:
+	case Herkulex::Servo::DSR_0602:
+
+		angleDegrees += 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
+		rawPosition = (angleDegrees / 0.02778) + 9903;
+		printf("rad to raw DSR_06?? - ");
+	}
+
+	printf("%f rads : %d raw\n", radians, rawPosition);
+
 	return rawPosition;
 }
 float Herkulex::Interface::rawToRadians(u_char servoId, short raw)
 {
-	float angleDeg = ((float)raw - 9903) * 0.02778;
-	angleDeg -= 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
+	Herkulex::Servo *servo = getServoById(servoId);
+
+	float angleDeg = 0;
+
+	switch (servo->typeId)
+	{
+	case Herkulex::Servo::DSR_0101:
+	case Herkulex::Servo::DSR_0201:
+
+		angleDeg = (float)raw * 0.325;
+		angleDeg -= 166.7;
+		break;
+
+	case Herkulex::Servo::DSR_0401:
+	case Herkulex::Servo::DSR_0402:
+
+		angleDeg = (float)raw * 0.163;
+		angleDeg -= 166.7;
+		break;
+
+	case Herkulex::Servo::DSR_0601:
+	case Herkulex::Servo::DSR_0602:
+
+		angleDeg = ((float)raw - 9903) * 0.02778;
+		angleDeg -= 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
+	}
+
 	float angleRads = (angleDeg / 180) * 3.141592654;
 	return angleRads;
 }
@@ -291,7 +342,12 @@ std::vector<u_char> Herkulex::Interface::eepRead(u_char servoId, u_char addr, u_
 
 void Herkulex::Interface::eepWrite(u_char servoId, u_char addr, std::vector<u_char> data)
 {
+	// add register address onto start of data to write
+	data.insert(data.begin(), addr);
+
+	// make command packet
 	std::vector<u_char> packet = makeCommandPacket(servoId, EEP_WRITE, data);
+
 	boost::asio::write(*port, boost::asio::buffer(packet));
 }
 
@@ -351,20 +407,31 @@ void Herkulex::Interface::detectServos()
 					data[10] >> 4,
 					data[10] & 0xF);
 
+			Servo::ServoType type = Servo::TypeUnknown;
+			if (data[9] == 0x01 && data[10] == 0x01)	type = Servo::DSR_0101;
+			if (data[9] == 0x02 && data[10] == 0x01)	type = Servo::DSR_0201;
+			if (data[9] == 0x04 && data[10] == 0x01)	type = Servo::DSR_0401;
+			if (data[9] == 0x04 && data[10] == 0x02)	type = Servo::DSR_0402;
+			if (data[9] == 0x06 && data[10] == 0x01)	type = Servo::DSR_0601;
+			if (data[9] == 0x06 && data[10] == 0x02)	type = Servo::DSR_0602;
+
+			if (type == Servo::TypeUnknown)
+				ROS_ERROR("Error : Unsupported Herkulex servo type detected [%s]", typeString);
+
 			char versionString[30];
 			sprintf(versionString, "version %d.%d",
 					data[11],
 					data[12]);
 
-			Servo servo(data[3], std::string(typeString), std::string(versionString), this);
+			Servo servo(data[3], type, std::string(typeString), std::string(versionString), this);
 			servos.push_back(servo);
 		}
 	}
 
 	// some responses may still be in the serial buffer so try and
-	// read them for 0.1 seconds more.
+	// read them for 0.5 seconds more.
 	ros::Time start = ros::Time::now();
-	ros::Duration listenTime = ros::Duration(0.1);
+	ros::Duration listenTime = ros::Duration(0.5);
 	while (ros::Time::now() < start + listenTime)
 	{
 		std::vector<u_char> data = getAckResponseFull(EEP_READ, 10);
@@ -378,12 +445,23 @@ void Herkulex::Interface::detectServos()
 					data[10] >> 4,
 					data[10] & 0xF);
 
+			Servo::ServoType type = Servo::TypeUnknown;
+			if (data[9] == 0x01 && data[10] == 0x01)	type = Servo::DSR_0101;
+			if (data[9] == 0x02 && data[10] == 0x01)	type = Servo::DSR_0201;
+			if (data[9] == 0x04 && data[10] == 0x01)	type = Servo::DSR_0401;
+			if (data[9] == 0x04 && data[10] == 0x02)	type = Servo::DSR_0402;
+			if (data[9] == 0x06 && data[10] == 0x01)	type = Servo::DSR_0601;
+			if (data[9] == 0x06 && data[10] == 0x02)	type = Servo::DSR_0602;
+
+			if (type == Servo::TypeUnknown)
+				ROS_ERROR("Error : Unsupported Herkulex servo type detected [%s]", typeString);
+
 			char versionString[30];
 			sprintf(versionString, "version %d.%d",
 					data[11],
 					data[12]);
 
-			Servo servo(data[3], std::string(typeString), std::string(versionString), this);
+			Servo servo(data[3], type,  std::string(typeString), std::string(versionString), this);
 			servos.push_back(servo);
 		}
 	}

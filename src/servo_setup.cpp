@@ -127,18 +127,17 @@ int main(int argc, char **argv)
 				// now loop until node shutdown flashing the specified servo's LED through red, green and blue
 				ROS_INFO("Flashing servo with Id [%d]", servoId);
 
-				ros::Rate rate(0.33);
+				ros::Rate rate(10);
 				int count = 0;
 				while(ros::ok())
 				{
 					switch(count)
 					{
-					case 0: interface->setLed(servoId, LED_CONTROL_RED); break;
-					case 1: interface->setLed(servoId, LED_CONTROL_GREEN); break;
-					case 2: interface->setLed(servoId, LED_CONTROL_BLUE); break;
+					case 0: interface->setLed((u_char)servoId, LED_CONTROL_RED); count=1; break;
+					case 1: interface->setLed((u_char)servoId, LED_CONTROL_GREEN); count=2; break;
+					case 2: interface->setLed((u_char)servoId, LED_CONTROL_BLUE); count=0; break;
 					}
 
-					count = (count++) % 3;
 					rate.sleep();
 				}
 			}
@@ -160,28 +159,31 @@ int main(int argc, char **argv)
 			{
 				ROS_INFO("Identifying Servo Id [%d]", servos[servoIt].id);
 
-				ros::Rate rate(0.33);
+				ros::Rate rate(10);
 				int count = 0;
-				ros::Duration secondsToFlash = ros::Duration(2.0);
+				ros::Duration secondsToFlash = ros::Duration(4.0);
 				ros::Time start = ros::Time::now();
 				while(ros::ok() && ros::Time::now() < start + secondsToFlash)
 				{
 					switch(count)
 					{
-					case 0: interface->setLed(servos[servoIt].id, LED_CONTROL_RED); break;
-					case 1: interface->setLed(servos[servoIt].id, LED_CONTROL_GREEN); break;
-					case 2: interface->setLed(servos[servoIt].id, LED_CONTROL_BLUE); break;
+					case 0: interface->setLed(servos[servoIt].id, LED_CONTROL_RED); count=1; break;
+					case 1: interface->setLed(servos[servoIt].id, LED_CONTROL_GREEN); count=2; break;
+					case 2: interface->setLed(servos[servoIt].id, LED_CONTROL_BLUE); count=0; break;
 					}
 
-					count = (count++) % 3;
 					rate.sleep();
 				}
 
 				// reset servo back to default green color
 				interface->setLed(servos[servoIt].id, LED_CONTROL_GREEN);
 
+				ROS_INFO("Done.");
+
 				// move to the next servo in the chain
-				servoIt = (servoIt++) % (int)servos.size();
+				servoIt = servoIt+1;
+				if (servoIt >= (int)servos.size())
+					servoIt = 0;
 			}
 		}
 	}

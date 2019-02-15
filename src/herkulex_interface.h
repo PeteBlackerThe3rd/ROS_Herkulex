@@ -102,16 +102,20 @@ namespace Herkulex
 class Herkulex::Servo
 {
 public:
+
+	enum ServoType { TypeUnknown, DSR_0101, DSR_0201, DSR_0401, DSR_0402, DSR_0601, DSR_0602 };
+
 	Servo()
 	{
 		angleMin = -2.7855455;
 		angleMax = 2.7855455;
 		interface = NULL;
 	}
-	Servo(u_char id, std::string type, std::string firmware, Herkulex::Interface *interface)
+	Servo(u_char id, ServoType typeId, std::string type, std::string firmware, Herkulex::Interface *interface)
 	{
 		this->id = id;
 		this->type = type;
+		this->typeId = typeId;
 		this->firmwareVersion = firmware;
 		this->interface = interface;
 
@@ -122,6 +126,7 @@ public:
 	u_char id;
 	std::string type;
 	std::string firmwareVersion;
+	ServoType typeId;
 
 	float angleMin, angleMax;
 
