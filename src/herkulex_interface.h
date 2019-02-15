@@ -40,6 +40,7 @@
 
 #define VOLTAGE_EEP_REG		49
 #define TEMPERATURE_EEP_REG	50
+#define ID_EEP_REG			 6
 
 #define LED_CONTROL_RAM_ADDR (u_char) 53
 #define LED_CONTROL_OFF (u_char) 0x00
@@ -210,6 +211,9 @@ public:
 	// Servo configuration methods
 	void setLed(u_char servoId, u_char ledState);
 	void setTorqueMode(u_char servoId, u_char torqueMode);
+	void setServoId(u_char servoId, u_char newServoId);
+
+	void rebootServo(u_char servoId);
 
 	static std::string getErrorString(u_char statusError, u_char statusDetail = 0);
 	static std::string getDetailString(u_char statusDetail);
@@ -238,8 +242,10 @@ private:
 	std::vector<u_char> ramRead(u_char servoId, u_char addr, u_char length);
 	void ramWrite(u_char servoId, std::vector<u_char> data);
 
-	std::vector<u_char> eepReadFull(u_char servo_id, u_char addr, u_char len, int timeout = 100);
-	std::vector<u_char> eepRead(u_char servo_id, u_char addr, u_char len, int timeout = 100);
+	std::vector<u_char> eepReadFull(u_char servoId, u_char addr, u_char len, int timeout = 100);
+	std::vector<u_char> eepRead(u_char servoId, u_char addr, u_char len, int timeout = 100);
+
+	void eepWrite(u_char servoId, u_char addr, std::vector<u_char> data);
 
 	// High level internal functions
 	void detectServos();

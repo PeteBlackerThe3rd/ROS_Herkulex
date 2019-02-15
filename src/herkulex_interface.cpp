@@ -270,23 +270,29 @@ void Herkulex::Interface::ramWrite(u_char servoId, std::vector<u_char> data)
 }
 
 /// Method to read EEP registers. returns len bytes starting at addr
-std::vector<u_char> Herkulex::Interface::eepReadFull(u_char servo_id, u_char addr, u_char len, int timeout)
+std::vector<u_char> Herkulex::Interface::eepReadFull(u_char servoId, u_char addr, u_char len, int timeout)
 {
 	std::vector<u_char> data = assembleBytes(addr, len);
-	std::vector<u_char> packet = makeCommandPacket(servo_id, EEP_READ, data);
+	std::vector<u_char> packet = makeCommandPacket(servoId, EEP_READ, data);
 
 	boost::asio::write(*port, boost::asio::buffer(packet));
 	return getAckResponseFull(EEP_READ, timeout);
 }
 
 /// Method to read EEP registers. returns len bytes starting at addr
-std::vector<u_char> Herkulex::Interface::eepRead(u_char servo_id, u_char addr, u_char len, int timeout)
+std::vector<u_char> Herkulex::Interface::eepRead(u_char servoId, u_char addr, u_char len, int timeout)
 {
 	std::vector<u_char> data = assembleBytes(addr, len);
-	std::vector<u_char> packet = makeCommandPacket(servo_id, EEP_READ, data);
+	std::vector<u_char> packet = makeCommandPacket(servoId, EEP_READ, data);
 
 	boost::asio::write(*port, boost::asio::buffer(packet));
 	return getAckResponse(EEP_READ, timeout);
+}
+
+void Herkulex::Interface::eepWrite(u_char servoId, u_char addr, std::vector<u_char> data)
+{
+	std::vector<u_char> packet = makeCommandPacket(servoId, EEP_WRITE, data);
+	boost::asio::write(*port, boost::asio::buffer(packet));
 }
 
 void Herkulex::Interface::setLed(u_char servoId, u_char ledState)
@@ -299,6 +305,26 @@ void Herkulex::Interface::setTorqueMode(u_char servoId, u_char torqueMode)
 {
    std::vector<u_char> data = assembleBytes(TORQUE_CONTROL_RAM_ADDR, 1, torqueMode);
    ramWrite(servoId, data);
+}
+
+void Herkulex::Interface::setServoId(u_char servoId, u_char newServoId)
+{
+	if (newServoId >= 0xFE)
+	{
+		ROS_ERROR("Herkulex Interface Error: Cannot set servo Id greater than 0xFD (253), these Id's a reserved for broadcast.");
+	}
+	else
+	{
+		std::vector<u_char> data = assembleBytes(1, newServoId);
+		eepWrite(servoId, ID_EEP_REG, data);
+		rebootServo(servoId);
+	}
+}
+
+void Herkulex::Interface::rebootServo(u_char servoId)
+{
+	std::vector<u_char> packet = makeCommandPacket(servoId, REBOOT, std::vector<u_char>());
+	boost::asio::write(*port, boost::asio::buffer(packet));
 }
 
 /** Method to detect all servos connected to the string
@@ -462,8 +488,11 @@ std::vector<u_char> Herkulex::Interface::makeSJOGPacket(Herkulex::TrajectoryPoin
 	std::vector<u_char> packet;
 
 	unsigned int timeOffset = position.timeFromStartSecs / 0.0112;
-	if (timeOffset >= 256)
+	if (timeOffset >= 254)
+	{
 		printf("Warning: time beyond %f second limit!\n", 255 * 0.0112); fflush(stdout);
+		timeOffset = 253;
+	}
 	packet.push_back(timeOffset & 0xff);
 
 	short rawPosition = radiansToRaw(position.servoId, position.angle);

@@ -66,6 +66,10 @@ add_executable(driver_node src/driver.cpp src/herkulex_interface.cpp)
 add_dependencies(driver_node ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(driver_node  ${catkin_LIBRARIES} )
 
+add_executable(servo_setup src/servo_setup.cpp src/herkulex_interface.cpp)
+add_dependencies(servo_setup ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(servo_setup  ${catkin_LIBRARIES} )
+
 #############
 ## Install ##
 #############
