@@ -49,9 +49,8 @@ private:
 
 	void trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal);
 
-	//actionlib::SimpleActionServer<moveit_msgs::ExecuteTrajectoryAction> trajectoryActionServer;
-
 	ros::NodeHandle n;
+	actionlib::SimpleActionServer<moveit_msgs::ExecuteTrajectoryAction> trajectoryActionServer;
 
 	Herkulex::Interface *interface;
 	std::vector<std::string> jointNames;
@@ -74,7 +73,7 @@ private:
 	std::vector<int> trajectoryJointLookup;
 };
 
-HerkulexDriver::HerkulexDriver() //: trajectoryActionServer(n, "trajectory_control", boost::bind(&HerkulexDriver::trajectoryHandler, this, _1), false)
+HerkulexDriver::HerkulexDriver() : trajectoryActionServer(n, "/trajectory_control", boost::bind(&HerkulexDriver::trajectoryHandler, this, _1), false)
 {
 	ros::NodeHandle n("~");
 
@@ -101,18 +100,12 @@ HerkulexDriver::HerkulexDriver() //: trajectoryActionServer(n, "trajectory_contr
 		exit(1);
 	}
 
-	printf("validated startup policies.\n"); fflush(stdout);
-
 	jointPublisher = n.advertise<sensor_msgs::JointState>("/joint_states", 10);
 	herkulexJointPublisher = n.advertise<ros_herkulex::JointState>("/herkulex_joint_states", 10);
-
-	printf("subscribers.\n"); fflush(stdout);
 
 	ros::Subscriber sub = n.subscribe("/position", 10, &HerkulexDriver::positionCallback, this);
 	ros::Subscriber jogSubscriber = n.subscribe("/jog", 10, &HerkulexDriver::jogCallback, this);
 	ros::Subscriber jogMultipleSubscriber = n.subscribe("/jog_multiple", 10, &HerkulexDriver::jogMultipleCallback, this);
-
-	printf("publishers.\n"); fflush(stdout);
 
 	ROS_INFO("connecting to Herkulex servo string on port \"%s\" with BAUD %d", portName.c_str(), BAUDRate);
 	interface = new Herkulex::Interface(portName, BAUDRate);
@@ -172,9 +165,7 @@ HerkulexDriver::HerkulexDriver() //: trajectoryActionServer(n, "trajectory_contr
 	jointInitialAngleToleranceRads = 0.01151917; // 0.66 degrees in radians.
 	jointGoalAngleToleranceRads = 0.01151917;
 
-	//trajectoryActionServer(n, "trajectory_control", boost::bind(&HerkulexDriver::trajectoryHandler, this, _1), false);
-	//trajectoryActionServer.start();
-
+	trajectoryActionServer.start();
 	ROS_INFO("Started trajectory action server.");
 
     ROS_INFO("--[ Herkulex Driver Node: startup complete ]--");
@@ -251,7 +242,7 @@ std::vector<float> HerkulexDriver::interpolateTrajectoryJointAngles(const trajec
 	return jointAngles;
 }
 
-/*void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal)
+void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal)
 {
 	// verify there is at least one joint in the trajectory
 	if (goal->trajectory.joint_trajectory.joint_names.size() > 0)
@@ -333,7 +324,7 @@ std::vector<float> HerkulexDriver::interpolateTrajectoryJointAngles(const trajec
   //activeTrajectory = goal->trajectory.joint_trajectory.points;
   //trajectoryStartTime = ros::Time::now();
   //armStatus = ARM_FOLLOWING_TRAJECTORY;
-}*/
+}
 
 sensor_msgs::JointState HerkulexDriver::makeJointStateMsg(std::vector<std::string> jointNames,
 										  	  	  	  	  std::vector<Herkulex::ServoJointStatus> joints)

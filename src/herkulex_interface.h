@@ -42,15 +42,15 @@
 #define TEMPERATURE_EEP_REG	50
 #define ID_EEP_REG			 6
 
-#define BROADCAST_SERVO_ID					254		// <--- ###### Not 253 as erroneously stated in the datasheets ######
+#define BROADCAST_SERVO_ID					254
 
-#define LED_CONTROL_RAM_ADDR (u_char) 53
-#define LED_CONTROL_OFF (u_char) 0x00
-#define LED_CONTROL_GREEN (u_char) 0x01
-#define LED_CONTROL_BLUE (u_char) 0x02
-#define LED_CONTROL_RED (u_char) 0x04
+#define LED_CONTROL_RAM_ADDR (u_char)		53
+#define LED_CONTROL_OFF (u_char)			0x00
+#define LED_CONTROL_GREEN (u_char)			0x01
+#define LED_CONTROL_BLUE (u_char)			0x02
+#define LED_CONTROL_RED (u_char)			0x04
 
-#define STATUS_ERROR_RAM_ADDR (u_char) 48
+#define STATUS_ERROR_RAM_ADDR (u_char)		48
 
 #define STATUS_ERROR_VOLTAGE_EXCEEDED		0x01
 #define STATUS_ERROR_RANGE_EXCEEDED			0x02
@@ -67,10 +67,10 @@
 #define STATUS_DETAIL_GARBAGE_DETECTED		0x20
 #define STATUS_DETAIL_TORQUE_ON				0x40
 
-#define MIN_POSITION_RAM_ADDR (u_char) 20
-#define MIN_POSITION_EEP_ADDR (u_char) 26
-#define MAX_POSITION_RAM_ADDR (u_char) 22
-#define MAX_POSITION_EEP_ADDR (u_char) 28
+#define MIN_POSITION_RAM_ADDR (u_char)		20
+#define MIN_POSITION_EEP_ADDR (u_char)		26
+#define MAX_POSITION_RAM_ADDR (u_char)		22
+#define MAX_POSITION_EEP_ADDR (u_char)		28
 
 #define ABSOLUTE_POSITION_RAM_ADDR (u_char) 60
 
