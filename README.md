@@ -1,4 +1,4 @@
-ROS_Herkulex
+ROS Herkulex driver package
 =======
 
 #### Summary
