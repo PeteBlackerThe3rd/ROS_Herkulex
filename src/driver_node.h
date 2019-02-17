@@ -32,14 +32,6 @@ public:
 
 	FlatBotDriver();
 
-	// start up the scan service handler
-	//void startScanService(ros::NodeHandle n);
-
-	// method to handle an external scan request
-	//bool scanServiceCallback(smart_fusion_sensor::PerformScan::Request &req,smart_fusion_sensor::PerformScan::Response &resp);
-
-	//void (*fusionCompleteCallback)(cv::Mat image, pcl::PointCloud<pcl::PointXYZI> points);
-
 	void publishStatus(const ros::TimerEvent&);
 
 	bool setStatus(flat_bot_msgs::SetStatus::Request  &req,

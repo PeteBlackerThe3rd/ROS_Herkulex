@@ -116,16 +116,20 @@ int main(int argc, char **argv)
 		{
 			// commands set okay, now check that the old servo id exists and that the new id doesn't conflict
 			bool idExists = false;
+			Herkulex::Servo *servo;
 			for (int s=0; s<interface->servos.size(); ++s)
 				if (interface->servos[s].id == servoId)
+				{
 					idExists = true;
+					servo = &interface->servos[s];
+				}
 
 			if (!idExists)
 				ROS_ERROR("Error : Cannot identify servo. Id of [%d] doesn't exist in chain.", servoId);
 			else
 			{
 				// now loop until node shutdown flashing the specified servo's LED through red, green and blue
-				ROS_INFO("Flashing servo with Id [%d]", servoId);
+				ROS_INFO("Flashing servo with Id [%d] : type : %s", servoId, servo->type.c_str());
 
 				ros::Rate rate(10);
 				int count = 0;
@@ -157,7 +161,7 @@ int main(int argc, char **argv)
 			int servoIt = 0;
 			while(ros::ok())
 			{
-				ROS_INFO("Identifying Servo Id [%d]", servos[servoIt].id);
+				ROS_INFO("Identifying Servo Id [%d] type : %s", servos[servoIt].id, servos[servoIt].type.c_str());
 
 				ros::Rate rate(10);
 				int count = 0;

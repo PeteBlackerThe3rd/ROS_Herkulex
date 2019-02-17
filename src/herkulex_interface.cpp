@@ -168,7 +168,7 @@ short Herkulex::Interface::radiansToRaw(u_char servoId, float radians)
 
 		angleDegrees += 166.7;
 		rawPosition = angleDegrees / 0.325;
-		printf("rad to raw DSR_02/01 - ");
+		//printf("rad to raw DSR_02/01 - ");
 		break;
 
 	case Herkulex::Servo::DSR_0401:
@@ -176,7 +176,7 @@ short Herkulex::Interface::radiansToRaw(u_char servoId, float radians)
 
 		angleDegrees += 166.7;
 		rawPosition = angleDegrees / 0.163;
-		printf("rad to raw DSR_04?? - ");
+		//printf("rad to raw DSR_04?? - ");
 		break;
 
 	case Herkulex::Servo::DSR_0601:
@@ -184,10 +184,10 @@ short Herkulex::Interface::radiansToRaw(u_char servoId, float radians)
 
 		angleDegrees += 180;	// change range from 0 <-> 360 to -180 <-> +180  (Fault in data sheet)
 		rawPosition = (angleDegrees / 0.02778) + 9903;
-		printf("rad to raw DSR_06?? - ");
+		//printf("rad to raw DSR_06?? - ");
 	}
 
-	printf("%f rads : %d raw\n", radians, rawPosition);
+	//printf("%f rads : %d raw\n", radians, rawPosition);
 
 	return rawPosition;
 }
