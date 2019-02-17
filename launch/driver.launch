@@ -1,0 +1,10 @@
+<launch>
+	<node pkg="ros_herkulex" type="driver_node" name="herkulex_driver" output="screen">
+		<param name="port" type="string" value="/dev/ttyUSB0" />
+		<param name="baud" type="int" value="115200" />
+		<param name="joint_publish_rate" type="int" value="50" />
+		<param name="joint_names" type="string" value="Wrist Elbow" />
+		<param name="startup_policy" type="string" value="torque_on" />
+		<param name="shutdown_policy" type="string" value="torque_on" />
+	</node>
+</launch>

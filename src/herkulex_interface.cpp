@@ -30,7 +30,9 @@ Herkulex::Interface::Interface(std::string portName, int BAUD)
 		return;
 	}
 
+	servoDetecionTime = 2.0;
 	detectServos();
+
 	if (servos.size() == 0)
 	{
 		connectionError = "Error : No herculex servos detected!";
@@ -396,7 +398,7 @@ void Herkulex::Interface::detectServos()
 	{
 		std::vector<u_char> data = eepReadFull(s, 0, 4, 1);
 
-		//ROS_WARN("eepRead returned %d bytes", (int)data.size());
+		//ROS_WARN("[%d] eepRead returned %d bytes", s, (int)data.size());
 
 		if (data.size() >= 13)
 		{
@@ -431,9 +433,17 @@ void Herkulex::Interface::detectServos()
 	// some responses may still be in the serial buffer so try and
 	// read them for 0.5 seconds more.
 	ros::Time start = ros::Time::now();
-	ros::Duration listenTime = ros::Duration(0.5);
-	while (ros::Time::now() < start + listenTime)
+	ros::Duration listenTime = ros::Duration(servoDetecionTime);
+	while (ros::Time::now() < start + listenTime && ros::ok())
 	{
+		/*printf("waiting for more responses!\n");
+		printf("s [%f] n [%f] %f < %f\n",
+				start.toSec(),
+				ros::Time::now().toSec(),
+				(ros::Time::now() - start).toSec(),
+				listenTime.toSec());
+		fflush(stdout);*/
+
 		std::vector<u_char> data = getAckResponseFull(EEP_READ, 10);
 
 		if (data.size() > 13)
@@ -465,6 +475,8 @@ void Herkulex::Interface::detectServos()
 			servos.push_back(servo);
 		}
 	}
+
+	//printf("completed detecting servos.\n"); fflush(stdout);
 }
 
 /*struct ServoPowerStatus
@@ -563,9 +575,16 @@ std::vector<Herkulex::ServoJointStatus> Herkulex::Interface::getJointStates()
 // create an S_JOG packet from the given servoId, time (seconds), angle(degrees) and led status mask
 std::vector<u_char> Herkulex::Interface::makeSJOGPacket(Herkulex::TrajectoryPoint position, u_char ledStatus)
 {
+	std::vector<Herkulex::TrajectoryPoint> points(1, position);
+
+	return makeSJOGPacket(points, ledStatus);
+}
+
+std::vector<u_char> Herkulex::Interface::makeSJOGPacket(std::vector<Herkulex::TrajectoryPoint> positions, u_char ledStatus)
+{
 	std::vector<u_char> packet;
 
-	unsigned int timeOffset = position.timeFromStartSecs / 0.0112;
+	unsigned int timeOffset = positions[0].timeFromStartSecs / 0.0112;
 	if (timeOffset >= 254)
 	{
 		printf("Warning: time beyond %f second limit!\n", 255 * 0.0112); fflush(stdout);
@@ -573,15 +592,48 @@ std::vector<u_char> Herkulex::Interface::makeSJOGPacket(Herkulex::TrajectoryPoin
 	}
 	packet.push_back(timeOffset & 0xff);
 
-	short rawPosition = radiansToRaw(position.servoId, position.angle);
-	packet.push_back(rawPosition & 0xff);
-	packet.push_back((rawPosition >> 8) & 0xff);
+	// add position, flags and servo Ids for each position given
+	for (int p=0; p<positions.size(); ++p)
+	{
+		short rawPosition = radiansToRaw(positions[p].servoId, positions[p].angle);
+		packet.push_back(rawPosition & 0xff);
+		packet.push_back((rawPosition >> 8) & 0xff);
 
-	// create an options byte for a position jog command with VOR
-	u_char options = 0x00 | ((ledStatus & 0x07) << 2);
-	packet.push_back(options);
+		// create an options byte for a position jog command with VOR
+		u_char options = 0x00 | ((ledStatus & 0x07) << 2);
+		packet.push_back(options);
 
-	packet.push_back(position.servoId);
+		packet.push_back(positions[p].servoId);
+	}
+
+	return packet;
+}
+
+std::vector<u_char> Herkulex::Interface::makeIJOGPacket(std::vector<Herkulex::TrajectoryPoint> positions, u_char ledStatus)
+{
+	std::vector<u_char> packet;
+
+	// add position, flags and servo Ids for each position given
+	for (int p=0; p<positions.size(); ++p)
+	{
+		short rawPosition = radiansToRaw(positions[p].servoId, positions[p].angle);
+		packet.push_back(rawPosition & 0xff);
+		packet.push_back((rawPosition >> 8) & 0xff);
+
+		// create an options byte for a position jog command with VOR
+		u_char options = 0x00 | ((ledStatus & 0x07) << 2);
+		packet.push_back(options);
+
+		packet.push_back(positions[p].servoId);
+
+		unsigned int timeOffset = positions[p].timeFromStartSecs / 0.0112;
+		if (timeOffset >= 254)
+		{
+			printf("Warning: time beyond %f second limit!\n", 255 * 0.0112); fflush(stdout);
+			timeOffset = 253;
+		}
+		packet.push_back(timeOffset & 0xff);
+	}
 
 	return packet;
 }
@@ -589,6 +641,21 @@ std::vector<u_char> Herkulex::Interface::makeSJOGPacket(Herkulex::TrajectoryPoin
 void Herkulex::Interface::S_JOGCommand(u_char servoId, std::vector<u_char> packets)
 {
 	std::vector<u_char> packet = makeCommandPacket(servoId, S_JOG, packets);
+
+	printf("S_JOG command packet:\n");
+	for (int b=0; b<packet.size(); ++b)
+		printf("[%3d]  0x%02X - %d\n", b, packet[b], packet[b]);
+
+	boost::asio::write(*port, boost::asio::buffer(packet));
+}
+
+void Herkulex::Interface::I_JOGCommand(u_char servoId, std::vector<u_char> packets)
+{
+	std::vector<u_char> packet = makeCommandPacket(servoId, I_JOG, packets);
+
+	printf("I_JOG command packet:\n");
+	for (int b=0; b<packet.size(); ++b)
+		printf("[%3d]  0x%02X - %d\n", b, packet[b], packet[b]);
 
 	boost::asio::write(*port, boost::asio::buffer(packet));
 }
@@ -609,5 +676,29 @@ bool Herkulex::Interface::jogServo(Herkulex::TrajectoryPoint position)
 
 	return true;
 }
+
+bool Herkulex::Interface::jogServos(std::vector<Herkulex::TrajectoryPoint> positions)
+{
+	printf("interface received %d jogs servos call.\n", (int)positions.size());
+
+	/*for (int p=0; p<positions.size(); ++p)
+	{
+		printf("id [%d] angle [%f] time [%f]\n", positions[p].servoId, positions[p].angle, positions[p].timeFromStartSecs);
+	}*/
+
+	std::vector<u_char> jogPacket = makeIJOGPacket(positions, LED_CONTROL_BLUE);
+	//I_JOGCommand(positions[1].servoId, jogPacket);
+	I_JOGCommand(BROADCAST_SERVO_ID, jogPacket);
+
+	//Herkulex::ServoJointStatus servo1Status = getJointState(1);
+	//printf("servo 1 status %s\n", getErrorString(servo1Status.error, servo1Status.detail).c_str());
+
+	//Herkulex::ServoJointStatus servo2Status = getJointState(219);
+	//printf("servo 219 status %s\n", getErrorString(servo2Status.error, servo2Status.detail).c_str());
+
+	return true;
+}
+
+
 
 

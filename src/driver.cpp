@@ -15,6 +15,7 @@
  // Custom messages
 #include "ros_herkulex/JointState.h"
 #include "ros_herkulex/Jog.h"
+#include "ros_herkulex/JogMultiple.h"
 
 #include "herkulex_interface.h"
 
@@ -41,11 +42,14 @@ private:
 
 	void jogCallback(ros_herkulex::Jog msg);
 
-	std::vector<float> interpolateTrajectoryJointAngles(const trajectory_msgs::JointTrajectory trajectory);
+	void jogMultipleCallback(ros_herkulex::JogMultiple msg);
+
+	std::vector<float> interpolateTrajectoryJointAngles(const trajectory_msgs::JointTrajectory trajectory,
+														ros::Duration timeOnTraj);
 
 	void trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal);
 
-	actionlib::SimpleActionServer<moveit_msgs::ExecuteTrajectoryAction> trajectoryActionServer;
+	//actionlib::SimpleActionServer<moveit_msgs::ExecuteTrajectoryAction> trajectoryActionServer;
 
 	ros::NodeHandle n;
 
@@ -70,21 +74,19 @@ private:
 	std::vector<int> trajectoryJointLookup;
 };
 
-HerkulexDriver::HerkulexDriver() : trajectoryActionServer(n, "trajectory_control", boost::bind(&HerkulexDriver::trajectoryHandler, this, _1), false)
+HerkulexDriver::HerkulexDriver() //: trajectoryActionServer(n, "trajectory_control", boost::bind(&HerkulexDriver::trajectoryHandler, this, _1), false)
 {
-	// setup ros for this node and get handle to ros system
-
 	ros::NodeHandle n("~");
 
 	// get and validate parameters
 	std::string portName, jointNamesParam, startupPolicy, shutdownPolicy;
 	int BAUDRate;
-	n.param<std::string>("herkulex_port", portName, "/dev/ttyUSB0");
-	n.param<int>("herkulex_baud", BAUDRate, 115200);
-	n.param<int>("joint_publish_rate", jointPublisherRate, 50);
-	n.param<std::string>("joint_names", jointNamesParam, "");
-	n.param<std::string>("startup_policy", startupPolicy, "torque_on");
-	n.param<std::string>("shutdown_policy", shutdownPolicy, "torque_on");
+		n.param<std::string>("port", portName, "/dev/ttyUSB0");
+		n.param<int>("baud", BAUDRate, 115200);
+		n.param<int>("joint_publish_rate", jointPublisherRate, 50);
+		n.param<std::string>("joint_names", jointNamesParam, "");
+		n.param<std::string>("startup_policy", startupPolicy, "torque_on");
+		n.param<std::string>("shutdown_policy", shutdownPolicy, "torque_on");
 
 	if (startupPolicy != "torque_on" && startupPolicy != "torque_off")
 	{
@@ -99,14 +101,23 @@ HerkulexDriver::HerkulexDriver() : trajectoryActionServer(n, "trajectory_control
 		exit(1);
 	}
 
-	jointPublisher = n.advertise<sensor_msgs::JointState>("joint_states", 10);
-	herkulexJointPublisher = n.advertise<ros_herkulex::JointState>("herkulex_joint_states", 10);
+	printf("validated startup policies.\n"); fflush(stdout);
+
+	jointPublisher = n.advertise<sensor_msgs::JointState>("/joint_states", 10);
+	herkulexJointPublisher = n.advertise<ros_herkulex::JointState>("/herkulex_joint_states", 10);
+
+	printf("subscribers.\n"); fflush(stdout);
 
 	ros::Subscriber sub = n.subscribe("/position", 10, &HerkulexDriver::positionCallback, this);
 	ros::Subscriber jogSubscriber = n.subscribe("/jog", 10, &HerkulexDriver::jogCallback, this);
+	ros::Subscriber jogMultipleSubscriber = n.subscribe("/jog_multiple", 10, &HerkulexDriver::jogMultipleCallback, this);
+
+	printf("publishers.\n"); fflush(stdout);
 
 	ROS_INFO("connecting to Herkulex servo string on port \"%s\" with BAUD %d", portName.c_str(), BAUDRate);
 	interface = new Herkulex::Interface(portName, BAUDRate);
+
+	printf("created hardware interface.\n"); fflush(stdout);
 
 	if (!interface->isConnected())
 	{
@@ -162,7 +173,7 @@ HerkulexDriver::HerkulexDriver() : trajectoryActionServer(n, "trajectory_control
 	jointGoalAngleToleranceRads = 0.01151917;
 
 	//trajectoryActionServer(n, "trajectory_control", boost::bind(&HerkulexDriver::trajectoryHandler, this, _1), false);
-	trajectoryActionServer.start();
+	//trajectoryActionServer.start();
 
 	ROS_INFO("Started trajectory action server.");
 
@@ -200,12 +211,47 @@ HerkulexDriver::~HerkulexDriver()
     delete interface;
 }
 
-std::vector<float> HerkulexDriver::interpolateTrajectoryJointAngles(const trajectory_msgs::JointTrajectory trajectory)
+std::vector<float> HerkulexDriver::interpolateTrajectoryJointAngles(const trajectory_msgs::JointTrajectory trajectory,
+																	ros::Duration timeOnTraj)
 {
+	std::vector<float> jointAngles(trajectory.joint_names.size(), 0.0);
 
+	// check time is within trajectory period
+	if (timeOnTraj.toSec() < 0)
+	{
+		ROS_ERROR("Error : Trying to interpolate a point on a trajectory with a negative time!");
+		return jointAngles;
+	}
+	int trajectoryPointCount = trajectory.points.size();
+	ros::Duration trajectoryDuration = trajectory.points[trajectoryPointCount-1].time_from_start;
+	if (timeOnTraj > trajectoryDuration)
+	{
+		ROS_ERROR("Error : Trying to interpolate a point on a trajectory with a time beyond trajectory duration!");
+		return jointAngles;
+	}
+
+	// get two adjacent points and time ratio
+	int p;
+	float ratio;
+	for (p=0; p<trajectoryPointCount-1; ++p)
+		if (timeOnTraj >= trajectory.points[p  ].time_from_start &&
+			timeOnTraj <  trajectory.points[p+1].time_from_start)
+		{
+			float segmentDuration = (trajectory.points[p+1].time_from_start - trajectory.points[p].time_from_start).toSec();
+			float segmentPosition = (timeOnTraj - trajectory.points[p].time_from_start).toSec();
+			ratio = segmentPosition / segmentDuration;
+		}
+
+	// interpolate final joint angles
+	for (int j=0; j<jointAngles.size(); ++j)
+	{
+		jointAngles[j] = trajectory.points[p].positions[j] * (1-ratio) + trajectory.points[p+1].positions[j] * ratio;
+	}
+
+	return jointAngles;
 }
 
-void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal)
+/*void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal)
 {
 	// verify there is at least one joint in the trajectory
 	if (goal->trajectory.joint_trajectory.joint_names.size() > 0)
@@ -261,7 +307,8 @@ void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalC
 	while (ros::Time::now() < start + trajDuration)
 	{
 		// interpolate joint angles at this point of time
-		std::vector<float> jointAngles = interpolateTrajectoryJointAngles(goal->trajectory.joint_trajectory);
+		std::vector<float> jointAngles = interpolateTrajectoryJointAngles(goal->trajectory.joint_trajectory,
+																		  ros::Time::now() - start);
 
 		// add fake joint angles into jointStates vector
 		for (int j=0; j<goal->trajectory.joint_trajectory.joint_names.size(); ++j)
@@ -272,8 +319,7 @@ void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalC
 		jointPublisher.publish(fakeJointStateMsg);
 
 		moveit_msgs::ExecuteTrajectoryFeedback progressMsg;
-		//std_msgs::String progressMsg;
-		progressMsg.state = "Trajectory in Progress";
+		progressMsg.state = "Trajectory in Progress ";
 		trajectoryActionServer.publishFeedback(progressMsg);
 
 		loopRate.sleep();
@@ -287,7 +333,7 @@ void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalC
   //activeTrajectory = goal->trajectory.joint_trajectory.points;
   //trajectoryStartTime = ros::Time::now();
   //armStatus = ARM_FOLLOWING_TRAJECTORY;
-}
+}*/
 
 sensor_msgs::JointState HerkulexDriver::makeJointStateMsg(std::vector<std::string> jointNames,
 										  	  	  	  	  std::vector<Herkulex::ServoJointStatus> joints)
@@ -467,6 +513,61 @@ void HerkulexDriver::jogCallback(ros_herkulex::Jog msg)
 		runTrajectory(jog);
 	else
 		interface->jogServo(jog);
+}
+
+void HerkulexDriver::jogMultipleCallback(ros_herkulex::JogMultiple msg)
+{
+	// clear any queued commands
+	queuedTimes.clear();
+	queuedCommands.clear();
+
+	ROS_WARN("Received a multiple jog messages for %d servos.", (int)msg.joint_jogs.size());
+
+	// verify joint names and get servo ids
+	std::vector<int> servoIds;
+	for (int j=0; j<msg.joint_jogs.size(); ++j)
+	{
+		int servoId = -1;
+		for (int n=0; n<jointNames.size(); ++n)
+			if (jointNames[n] == msg.joint_jogs[j].joint_name)
+				servoId = interface->servos[n].id;
+
+		if (servoId == -1)
+		{
+			ROS_ERROR("Error : jog multiple failed, joint name \"%s\" doesn't exist.", msg.joint_jogs[j].joint_name.c_str());
+			return;
+		}
+		servoIds.push_back(servoId);
+
+		ROS_INFO("Joint \"%s\" found servo id %d", msg.joint_jogs[j].joint_name.c_str(), servoId);
+	}
+
+	// for each jog message if a goal speed was given then use it to calculate the time it will take
+	// (herkulex commands take position and time not speed directly)
+	for (int j=0; j<msg.joint_jogs.size(); ++j)
+		if (msg.joint_jogs[j].goal_speed > 0.0)
+		{
+			Herkulex::ServoJointStatus state = interface->getJointState(servoIds[j]);
+
+			// find time needed to reach goal angle at given rate
+			msg.joint_jogs[j].goal_time = fabs(msg.joint_jogs[j].goal_angle - state.angleRads) / msg.joint_jogs[j].goal_speed;
+		}
+
+	// create vector of trajector point objects and send to the interface
+	std::vector<Herkulex::TrajectoryPoint> jogs;
+	for (int j=0; j<msg.joint_jogs.size(); ++j)
+		jogs.push_back(Herkulex::TrajectoryPoint(servoIds[j],
+												 msg.joint_jogs[j].goal_time,
+												 msg.joint_jogs[j].goal_angle));
+
+	interface->jogServos(jogs);
+
+	// if the time is beyond the protocol limit of 2.856000 seconds then run this
+	// as a trajectory instead.
+	//if (time >= 2.856)
+	//	runTrajectory(jog);
+	//else
+	//	interface->jogServo(jog);
 }
 
 int main(int argc, char **argv)

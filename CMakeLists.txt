@@ -26,6 +26,7 @@ add_message_files(
   FILES
   JointState.msg
   Jog.msg
+  JogMultiple.msg
 )
 
 ## Generate services in the 'srv' folder
@@ -69,6 +70,10 @@ target_link_libraries(driver_node  ${catkin_LIBRARIES} )
 add_executable(servo_setup src/servo_setup.cpp src/herkulex_interface.cpp)
 add_dependencies(servo_setup ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
 target_link_libraries(servo_setup  ${catkin_LIBRARIES} )
+
+add_executable(multiple_jog src/multiple_jog_test.cpp)
+add_dependencies(multiple_jog ${${PROJECT_NAME}_EXPORTED_TARGETS} ${catkin_EXPORTED_TARGETS})
+target_link_libraries(multiple_jog  ${catkin_LIBRARIES} )
 
 #############
 ## Install ##

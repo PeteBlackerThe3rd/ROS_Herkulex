@@ -42,6 +42,8 @@
 #define TEMPERATURE_EEP_REG	50
 #define ID_EEP_REG			 6
 
+#define BROADCAST_SERVO_ID					254		// <--- ###### Not 253 as erroneously stated in the datasheets ######
+
 #define LED_CONTROL_RAM_ADDR (u_char) 53
 #define LED_CONTROL_OFF (u_char) 0x00
 #define LED_CONTROL_GREEN (u_char) 0x01
@@ -256,7 +258,12 @@ private:
 	void detectServos();
 
 	std::vector<u_char> makeSJOGPacket(Herkulex::TrajectoryPoint position, u_char ledStatus);
+	std::vector<u_char> makeSJOGPacket(std::vector<Herkulex::TrajectoryPoint> position, u_char ledStatus);
+
+	std::vector<u_char> makeIJOGPacket(std::vector<Herkulex::TrajectoryPoint> position, u_char ledStatus);
+
 	void S_JOGCommand(u_char servoId, std::vector<u_char> packets);
+	void I_JOGCommand(u_char servoId, std::vector<u_char> packets);
 
 	Herkulex::Servo *getServoById(u_char servoId);
 
@@ -264,6 +271,7 @@ private:
 	boost::asio::serial_port *port;
 	bool connected;
 	std::string connectionError;
+	float servoDetecionTime;
 
 	Herkulex::ShutdownPolicy shutdownPolicy;
 };
