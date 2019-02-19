@@ -2,6 +2,7 @@
 #include <math.h>
 #include <stdlib.h>
 #include <boost/algorithm/string.hpp>
+#include <mutex>
 
 // ROS libraries
 #include <ros/ros.h>
@@ -53,7 +54,10 @@ private:
 	actionlib::SimpleActionServer<moveit_msgs::ExecuteTrajectoryAction> trajectoryActionServer;
 
 	Herkulex::Interface *interface;
+	std::mutex interfaceLock;
+
 	std::vector<std::string> jointNames;
+	std::vector<Herkulex::ServoJointStatus> jointStates;
 
 	ros::Publisher jointPublisher;
 	ros::Publisher herkulexJointPublisher;
@@ -221,17 +225,23 @@ std::vector<float> HerkulexDriver::interpolateTrajectoryJointAngles(const trajec
 		return jointAngles;
 	}
 
+	//printf("Duration into trajectory okay.\n"); fflush(stdout);
+	//printf("Interpolating %f secs of a %f second trajectory.\n", timeOnTraj.toSec(), trajectoryDuration.toSec()); fflush(stdout);
+
 	// get two adjacent points and time ratio
 	int p;
 	float ratio;
-	for (p=0; p<trajectoryPointCount-1; ++p)
+	for (p=0; p<trajectoryPointCount-1; p++)
 		if (timeOnTraj >= trajectory.points[p  ].time_from_start &&
 			timeOnTraj <  trajectory.points[p+1].time_from_start)
 		{
 			float segmentDuration = (trajectory.points[p+1].time_from_start - trajectory.points[p].time_from_start).toSec();
 			float segmentPosition = (timeOnTraj - trajectory.points[p].time_from_start).toSec();
 			ratio = segmentPosition / segmentDuration;
+			break;
 		}
+
+	//printf("Two adjacent indices are %d - %d out of %d points.\n", p, p+1, trajectoryPointCount); fflush(stdout);
 
 	// interpolate final joint angles
 	for (int j=0; j<jointAngles.size(); ++j)
@@ -245,7 +255,7 @@ std::vector<float> HerkulexDriver::interpolateTrajectoryJointAngles(const trajec
 void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalConstPtr &goal)
 {
 	// verify there is at least one joint in the trajectory
-	if (goal->trajectory.joint_trajectory.joint_names.size() > 0)
+	if (goal->trajectory.joint_trajectory.joint_names.size() == 0)
 	{
 		moveit_msgs::ExecuteTrajectoryResult result;
 		result.error_code.val = moveit_msgs::MoveItErrorCodes::INVALID_MOTION_PLAN;
@@ -272,20 +282,31 @@ void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalC
 		ROS_INFO("JointLookup [%d] -> %d", j, (int)(pos - jointNames.begin()));
 	}
 
-	// verify the robot's current state is within the initial state tolerance of the trajectory's start state
-	std::vector<Herkulex::ServoJointStatus> initialJointStates = interface->getJointStates();
+	interfaceLock.lock();
+	std::vector<Herkulex::ServoJointStatus> currentJointStates = interface->getJointStates();
+	interfaceLock.unlock();
+
 	for (int j=0; j<goal->trajectory.joint_trajectory.joint_names.size(); ++j)
 	{
+		Herkulex::ServoJointStatus jointStatus = currentJointStates[trajectoryJointLookup[j]];
+		printf("Got a position of %f rads for servo id %d",
+				jointStatus.angleRads,
+				jointStatus.servoId);
+
 		double trajectoryStartAngle = goal->trajectory.joint_trajectory.points[0].positions[j];
-		float servoStartAngle = initialJointStates[trajectoryJointLookup[j]].angleRads;
+		float servoStartAngle = jointStatus.angleRads;
 
 		if (fabs(trajectoryStartAngle - servoStartAngle) >= jointInitialAngleToleranceRads)
 		{
-			moveit_msgs::ExecuteTrajectoryResult result;
+			ROS_WARN("Joint [%s] start state error of %f radians.",
+					 goal->trajectory.joint_trajectory.joint_names[j].c_str(),
+					 (trajectoryStartAngle - servoStartAngle));
+
+			/*moveit_msgs::ExecuteTrajectoryResult result;
 			result.error_code.val = moveit_msgs::MoveItErrorCodes::START_STATE_VIOLATES_PATH_CONSTRAINTS;
 			std::string errorMsg = "Error : joint " + goal->trajectory.joint_trajectory.joint_names[j] + " violates initial state tolerance!";
 			trajectoryActionServer.setAborted(result, errorMsg);
-			return;
+			return;*/
 		}
 	}
 
@@ -294,20 +315,57 @@ void HerkulexDriver::trajectoryHandler(const moveit_msgs::ExecuteTrajectoryGoalC
 	int trajPointsCount = goal->trajectory.joint_trajectory.points.size();
 	ros::Duration trajDuration = goal->trajectory.joint_trajectory.points[trajPointsCount-1].time_from_start;
 
+	printf("Calculated a trajectory duration of %f seconds.\n", trajDuration.toSec());
+
+	float overshootRatio = 1.3;
+
 	ros::Rate loopRate(jointPublisherRate);
 	while (ros::Time::now() < start + trajDuration)
 	{
+
 		// interpolate joint angles at this point of time
 		std::vector<float> jointAngles = interpolateTrajectoryJointAngles(goal->trajectory.joint_trajectory,
 																		  ros::Time::now() - start);
 
+		printf("made joint angles.\n"); fflush(stdout);
+
+		// add overshoot to joint angles
+		for (int j=0; j<jointAngles.size(); ++j)
+		{
+			float currentAngle = currentJointStates[trajectoryJointLookup[j]].angleRads;
+			jointAngles[j] = currentAngle + ((jointAngles[j] - currentAngle) * overshootRatio);
+		}
+
+		// send multiple jog command to servo interface
+		// create vector of trajectory point objects and send to the interface
+		std::vector<Herkulex::TrajectoryPoint> jogs;
+		for (int j=0; j<jointAngles.size(); ++j)
+		{
+			printf("Adding jog: id[%d] time[%f sec] angle[%f rads]\n",
+				   jointStates[trajectoryJointLookup[j]].servoId,
+				   loopRate.expectedCycleTime().toSec(),
+				   jointAngles[j]); fflush(stdout);
+
+			jogs.push_back(Herkulex::TrajectoryPoint(currentJointStates[trajectoryJointLookup[j]].servoId,
+													 loopRate.expectedCycleTime().toSec() * overshootRatio,
+													 jointAngles[j]));
+		}
+
+		printf("made trajctory point msgs %d.\n", (int)jogs.size()); fflush(stdout);
+
+		interfaceLock.lock();
+		interface->jogServos(jogs);
+		interfaceLock.unlock();
+
+		printf("sent jogs to interface.\n"); fflush(stdout);
+
 		// add fake joint angles into jointStates vector
-		for (int j=0; j<goal->trajectory.joint_trajectory.joint_names.size(); ++j)
-			initialJointStates[trajectoryJointLookup[j]].angleRads = jointAngles[j];
+		//for (int j=0; j<goal->trajectory.joint_trajectory.joint_names.size(); ++j)
+		//	jointStates[trajectoryJointLookup[j]].angleRads = jointAngles[j];
 
 		// publish fake joint states
-		sensor_msgs::JointState fakeJointStateMsg = makeJointStateMsg(jointNames, initialJointStates);
-		jointPublisher.publish(fakeJointStateMsg);
+		//sensor_msgs::JointState fakeJointStateMsg = makeJointStateMsg(jointNames, jointStates);
+		//jointPublisher.publish(fakeJointStateMsg);
 
 		moveit_msgs::ExecuteTrajectoryFeedback progressMsg;
 		progressMsg.state = "Trajectory in Progress ";
@@ -385,31 +443,35 @@ ros_herkulex::JointState HerkulexDriver::makeHerkulexJointStateMsg(std::vector<s
 void HerkulexDriver::publishJointStatusMessages()
 {
 	bool gotJointStates = false;
-	std::vector<Herkulex::ServoJointStatus> joints;
 
 	// produce and publish joint state msg if any nodes are listening
 	if (jointPublisher.getNumSubscribers() > 0)
 	{
-		joints = interface->getJointStates();
+		interfaceLock.lock();
+		jointStates = interface->getJointStates();
+		interfaceLock.unlock();
 		gotJointStates = true;
 
-		sensor_msgs::JointState jointStateMsg = makeJointStateMsg(jointNames, joints);
+		sensor_msgs::JointState jointStateMsg = makeJointStateMsg(jointNames, jointStates);
 		jointPublisher.publish(jointStateMsg);
 	}
 
 	// produce and publish herkulex joint state msg if any nodes are listening
 	if (herkulexJointPublisher.getNumSubscribers() > 0)
 	{
+		interfaceLock.lock();
+
 		if (!gotJointStates)
 		{
-    		joints = interface->getJointStates();
+			jointStates = interface->getJointStates();
     		gotJointStates = true;
 		}
 
 		std::vector<Herkulex::ServoPowerStatus> jointStatuses = interface->getServoPowerStatuses();
+		interfaceLock.unlock();
 
 		ros_herkulex::JointState herkulexJointStateMsg = makeHerkulexJointStateMsg(jointNames,
-																				   joints,
+																				   jointStates,
 																				   jointStatuses);
 		herkulexJointPublisher.publish(herkulexJointStateMsg);
 	}
@@ -421,7 +483,9 @@ void HerkulexDriver::positionCallback(std_msgs::Float32 msg)
 
 	Herkulex::TrajectoryPoint test(219, 1.0, 3.141);
 	test.setDegrees(value);
+	interfaceLock.lock();
 	interface->jogServo(test);
+	interfaceLock.unlock();
 }
 
 void HerkulexDriver::runTrajectory(Herkulex::TrajectoryPoint goal)
@@ -450,7 +514,9 @@ void HerkulexDriver::runTrajectory(Herkulex::TrajectoryPoint goal)
 	//ROS_WARN("Created set of [%d] trajectory point along trajectory", (int)points.size());
 
 	ros::Time startTime = ros::Time::now();
+	interfaceLock.lock();
 	interface->jogServo(points[2]);
+	interfaceLock.unlock();
 
 	ros::Duration segmentDuration(goal.timeFromStartSecs / segmentCount);
 
@@ -503,7 +569,11 @@ void HerkulexDriver::jogCallback(ros_herkulex::Jog msg)
 	if (time >= 2.856)
 		runTrajectory(jog);
 	else
+	{
+		interfaceLock.lock();
 		interface->jogServo(jog);
+		interfaceLock.unlock();
+	}
 }
 
 void HerkulexDriver::jogMultipleCallback(ros_herkulex::JogMultiple msg)
@@ -544,14 +614,16 @@ void HerkulexDriver::jogMultipleCallback(ros_herkulex::JogMultiple msg)
 			msg.joint_jogs[j].goal_time = fabs(msg.joint_jogs[j].goal_angle - state.angleRads) / msg.joint_jogs[j].goal_speed;
 		}
 
-	// create vector of trajector point objects and send to the interface
+	// create vector of trajectory point objects and send to the interface
 	std::vector<Herkulex::TrajectoryPoint> jogs;
 	for (int j=0; j<msg.joint_jogs.size(); ++j)
 		jogs.push_back(Herkulex::TrajectoryPoint(servoIds[j],
 												 msg.joint_jogs[j].goal_time,
 												 msg.joint_jogs[j].goal_angle));
 
+	interfaceLock.lock();
 	interface->jogServos(jogs);
+	interfaceLock.unlock();
 
 	// if the time is beyond the protocol limit of 2.856000 seconds then run this
 	// as a trajectory instead.

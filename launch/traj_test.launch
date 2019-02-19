@@ -7,4 +7,6 @@
 		<param name="startup_policy" type="string" value="torque_on" />
 		<param name="shutdown_policy" type="string" value="torque_on" />
 	</node>
+	
+	<node pkg="assembly_control" type="trajectory_tester" name="tester" output="screen" />
 </launch>

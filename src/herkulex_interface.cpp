@@ -520,6 +520,7 @@ std::vector<Herkulex::ServoPowerStatus> Herkulex::Interface::getServoPowerStatus
 Herkulex::ServoJointStatus Herkulex::Interface::getJointState(u_char servoId)
 {
 	ServoJointStatus status;
+	status.servoId = servoId;
 
 	// get servo joint information
 	std::vector<u_char> data = ramRead(servoId, 58, 10);
@@ -642,9 +643,9 @@ void Herkulex::Interface::S_JOGCommand(u_char servoId, std::vector<u_char> packe
 {
 	std::vector<u_char> packet = makeCommandPacket(servoId, S_JOG, packets);
 
-	printf("S_JOG command packet:\n");
-	for (int b=0; b<packet.size(); ++b)
-		printf("[%3d]  0x%02X - %d\n", b, packet[b], packet[b]);
+	//printf("S_JOG command packet:\n");
+	//for (int b=0; b<packet.size(); ++b)
+	//	printf("[%3d]  0x%02X - %d\n", b, packet[b], packet[b]);
 
 	boost::asio::write(*port, boost::asio::buffer(packet));
 }
@@ -653,9 +654,9 @@ void Herkulex::Interface::I_JOGCommand(u_char servoId, std::vector<u_char> packe
 {
 	std::vector<u_char> packet = makeCommandPacket(servoId, I_JOG, packets);
 
-	printf("I_JOG command packet:\n");
-	for (int b=0; b<packet.size(); ++b)
-		printf("[%3d]  0x%02X - %d\n", b, packet[b], packet[b]);
+	//printf("I_JOG command packet:\n");
+	//for (int b=0; b<packet.size(); ++b)
+	//	printf("[%3d]  0x%02X - %d\n", b, packet[b], packet[b]);
 
 	boost::asio::write(*port, boost::asio::buffer(packet));
 }
